@@ -115,7 +115,7 @@ impl<'a> ConstructorStringParser<'a> {
   }
 
   // Ref: https://wicg.github.io/urlpattern/#get-a-safe-token
-  fn get_safe_token(&self, index: usize) -> &Token {
+  fn get_safe_token(&self, index: usize) -> &Token<'_> {
     if index < self.token_list.len() {
       &self.token_list[index]
     } else {
@@ -256,14 +256,18 @@ impl<'a> ConstructorStringParser<'a> {
   // Ref: https://wicg.github.io/urlpattern/#compute-protocol-matches-a-special-scheme-flag
   fn compute_protocol_matches_special_scheme<R: RegExp>(
     &mut self,
+    matcher: &mut impl FnMut(&crate::component::Component<R>) -> Result<bool, Error>,
   ) -> Result<(), Error> {
     let protocol_string = self.make_component_string();
     let protocol_component = crate::component::Component::<R>::compile(
       Some(&protocol_string),
       crate::canonicalize_and_process::canonicalize_protocol,
-      Default::default(),
+      crate::parser::Options {
+        regex_syntax: R::syntax(),
+        ..Default::default()
+      },
     )?;
-    if protocol_component.protocol_component_matches_special_scheme() {
+    if matcher(&protocol_component)? {
       self.protocol_matches_special_scheme = true;
     }
     Ok(())
@@ -295,6 +299,7 @@ impl<'a> ConstructorStringParser<'a> {
 // Ref: https://wicg.github.io/urlpattern/#parse-a-constructor-string
 pub(crate) fn parse_constructor_string<R: RegExp>(
   input: &str,
+  matcher: &mut impl FnMut(&crate::component::Component<R>) -> Result<bool, Error>,
 ) -> Result<UrlPatternInit, Error> {
   let token_list = crate::tokenizer::tokenize(
     input,
@@ -368,7 +373,7 @@ pub(crate) fn parse_constructor_string<R: RegExp>(
       }
       ConstructorStringParserState::Protocol => {
         if parser.is_protocol_suffix() {
-          parser.compute_protocol_matches_special_scheme::<R>()?;
+          parser.compute_protocol_matches_special_scheme::<R>(matcher)?;
           let mut next_state = ConstructorStringParserState::Pathname;
           let mut skip = 1;
           if parser.next_is_authority_slashes() {

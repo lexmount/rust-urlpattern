@@ -57,7 +57,26 @@ impl UrlPatternInit {
     pattern: &str,
     base_url: Option<Url>,
   ) -> Result<UrlPatternInit, Error> {
-    let mut init = constructor_parser::parse_constructor_string::<R>(pattern)?;
+    Self::parse_constructor_string_with_protocol_matcher::<R>(
+      pattern,
+      base_url,
+      &mut |component| {
+        Ok(component.protocol_component_matches_special_scheme())
+      },
+    )
+  }
+
+  /// Browser integration: evaluate special-scheme protocol matches using the
+  /// host's scoped regular-expression engine before splitting authority/path.
+  /// The matcher may borrow host state for this call, and its errors propagate
+  /// without falling back to the regular-expression trait's matching method.
+  pub fn parse_constructor_string_with_protocol_matcher<R: RegExp>(
+    pattern: &str,
+    base_url: Option<Url>,
+    matcher: &mut impl FnMut(&Component<R>) -> Result<bool, Error>,
+  ) -> Result<UrlPatternInit, Error> {
+    let mut init =
+      constructor_parser::parse_constructor_string::<R>(pattern, matcher)?;
     if base_url.is_none() && init.protocol.is_none() {
       return Err(Error::BaseUrlRequired);
     }
@@ -319,6 +338,22 @@ impl<R: RegExp> UrlPattern<R> {
     report_regex_errors: bool,
     options: UrlPatternOptions,
   ) -> Result<Self, Error> {
+    Self::parse_internal_with_protocol_matcher(
+      init,
+      report_regex_errors,
+      options,
+      &mut |component| {
+        Ok(component.protocol_component_matches_special_scheme())
+      },
+    )
+  }
+
+  pub(crate) fn parse_internal_with_protocol_matcher(
+    init: UrlPatternInit,
+    report_regex_errors: bool,
+    options: UrlPatternOptions,
+    matcher: &mut impl FnMut(&Component<R>) -> Result<bool, Error>,
+  ) -> Result<Self, Error> {
     let mut processed_init = init.process(
       ProcessType::Pattern,
       None,
@@ -395,9 +430,8 @@ impl<R: RegExp> UrlPattern<R> {
         .pathname
         .as_ref()
         .is_some_and(|p| p.starts_with('/'));
-      let is_non_opaque = protocol_is_empty
-        || protocol.protocol_component_matches_special_scheme()
-        || has_leading_slash;
+      let is_non_opaque =
+        protocol_is_empty || matcher(&protocol)? || has_leading_slash;
 
       if is_non_opaque {
         Component::compile(

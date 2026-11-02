@@ -211,18 +211,38 @@ pub fn parse_pattern<R: RegExp>(
 ) -> Result<UrlPattern, Error> {
   let pattern = crate::UrlPattern::<R>::parse_internal(init, true, options)?;
 
-  let urlpattern = UrlPattern {
-    has_regexp_groups: pattern.has_regexp_groups(),
-    protocol: pattern.protocol.into(),
-    username: pattern.username.into(),
-    password: pattern.password.into(),
-    hostname: pattern.hostname.into(),
-    port: pattern.port.into(),
-    pathname: pattern.pathname.into(),
-    search: pattern.search.into(),
-    hash: pattern.hash.into(),
-  };
-  Ok(urlpattern)
+  Ok(pattern.into())
+}
+
+/// Browser integration: let a scoped host regex engine decide whether the
+/// compiled protocol denotes a special URL scheme. No context escapes parsing.
+/// A special scheme uses pathname segment boundaries. Matcher errors are
+/// returned to the caller without falling back to the default matching method.
+pub fn parse_pattern_with_protocol_matcher<R: RegExp>(
+  init: crate::UrlPatternInit,
+  options: UrlPatternOptions,
+  matcher: &mut impl FnMut(&Component<R>) -> Result<bool, Error>,
+) -> Result<UrlPattern, Error> {
+  let pattern = crate::UrlPattern::<R>::parse_internal_with_protocol_matcher(
+    init, true, options, matcher,
+  )?;
+  Ok(pattern.into())
+}
+
+impl<R: RegExp> From<crate::UrlPattern<R>> for UrlPattern {
+  fn from(pattern: crate::UrlPattern<R>) -> Self {
+    UrlPattern {
+      has_regexp_groups: pattern.has_regexp_groups(),
+      protocol: pattern.protocol.into(),
+      username: pattern.username.into(),
+      password: pattern.password.into(),
+      hostname: pattern.hostname.into(),
+      port: pattern.port.into(),
+      pathname: pattern.pathname.into(),
+      search: pattern.search.into(),
+      hash: pattern.hash.into(),
+    }
+  }
 }
 
 pub fn parse_pattern_as_lib<R: RegExp>(
